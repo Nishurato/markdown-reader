@@ -71,6 +71,50 @@ ctest --preset release
 
 Тесты используют платформенный плагин Qt `offscreen`. Обычный запуск приложения использует нативный графический плагин Qt.
 
+## Cross-Platform Builds
+
+Workflow [Cross-Platform Builds](.github/workflows/build.yml) собирает Release через CMake и Ninja с Qt 6.8.3. Каждый runner запускает CTest и проверяет развёртывание перед загрузкой пакета. Пакеты и отдельные журналы `tests-*` хранятся до 14 дней. Workflow запускается вручную и для pull request.
+
+| GitHub runner | Компилятор | Файл внутри артефакта |
+| --- | --- | --- |
+| `windows-2022` | MSVC 2022 x64 | `MarkdownReader-0.2.2-Windows-x64.zip` |
+| `ubuntu-22.04` | GCC x86_64 | `MarkdownReader-0.2.2-Linux-x86_64.AppImage` |
+| `macos-15-intel` | Apple Clang x86_64 | `MarkdownReader-0.2.2-macOS-Intel.dmg` |
+| `macos-15` | Apple Clang arm64 | `MarkdownReader-0.2.2-macOS-ARM64.dmg` |
+
+Для ручного запуска откройте вкладку **Actions**, выберите **Cross-Platform Builds**, затем **Run workflow** и ветку. Кнопка ручного запуска доступна после появления workflow в ветке по умолчанию. После завершения откройте страницу прогона и скачайте нужный пакет в разделе **Artifacts**. Распакуйте внешний ZIP от GitHub Actions, чтобы получить файл из таблицы. При сбое скачайте соответствующий артефакт `tests-*` и проверьте лог задания.
+
+### Запуск тестового пакета
+
+**Windows x64.** Распакуйте внутренний ZIP в отдельный каталог. Запустите `MarkdownReader.exe`, сохранив рядом DLL Qt и каталоги `platforms` и `imageformats`. Если отсутствует среда выполнения MSVC, установите официальный [Visual C++ Redistributable x64](https://learn.microsoft.com/cpp/windows/latest-supported-vc-redist). Qt 6.8 указывает Windows 10 1809 и новее, а также Windows 11. Для диагностики плагинов задайте `$env:QT_DEBUG_PLUGINS = "1"` и запустите приложение из PowerShell. Если вывод недоступен в консоли, используйте журнал Windows или DebugView. [Поддерживаемые платформы Qt 6.8](https://doc.qt.io/qt-6.8/supported-platforms.html)
+
+**macOS.** Выберите DMG по результату `uname -m`: Intel для `x86_64`, ARM64 для `arm64`. Откройте DMG и перетащите `MarkdownReader.app` в Applications. Тестовый пакет имеет локальную подпись ad hoc. Gatekeeper может ограничить запуск загруженного файла, поскольку подпись Developer ID и нотариализация пока отсутствуют. При сбое приложите вывод `sw_vers`, `uname -m`, `lipo -archs /Applications/MarkdownReader.app/Contents/MacOS/MarkdownReader` и `otool -L` для этого же файла.
+
+**Linux x86_64.** Пакет включает библиотеки Qt и плагины XCB и изображений. Нужен X11 или XWayland и системные библиотеки дистрибутива. Ориентир совместимости — Ubuntu 22.04 с glibc 2.35. На более старых дистрибутивах запуск не подтверждён.
+
+```sh
+app=./MarkdownReader-0.2.2-Linux-x86_64.AppImage
+chmod +x "$app"
+"$app"
+# Запуск без FUSE
+"$app" --appimage-extract-and-run
+# Диагностика зависимостей и плагина XCB
+"$app" --appimage-extract
+ldd squashfs-root/usr/bin/MarkdownReader squashfs-root/usr/plugins/platforms/libqxcb.so
+QT_DEBUG_PLUGINS=1 QT_QPA_PLATFORM=xcb ./squashfs-root/AppRun
+```
+
+Приложите строки `not found` из `ldd`, вывод `ldd --version` и `cat /etc/os-release`. На Ubuntu и Linux Mint для XCB может понадобиться, в частности, пакет `libxcb-cursor0`. [Системные зависимости Qt для Linux](https://doc.qt.io/qt-6/linux-requirements.html)
+
+Если инструмент создания AppImage недоступен, после сборки и CTest тот же сценарий может упаковать подготовленный каталог в переносимый архив:
+
+```sh
+bash .github/scripts/package-linux.sh build/release "$HOME/Qt/6.8.3/gcc_64" 0.2.2 \
+  build/packages/MarkdownReader-0.2.2-Linux-x86_64.tar.gz
+tar -xzf build/packages/MarkdownReader-0.2.2-Linux-x86_64.tar.gz
+./MarkdownReader.AppDir/AppRun
+```
+
 ## Проверка в VMware
 
 В гостевой системе поместите исходники в локальный каталог, установите подходящий комплект Qt 6.8+ и выполните команды сборки и CTest из раздела выше. Для проверки стартовой страницы запустите приложение **без** аргумента `examples/example.md`.
@@ -89,7 +133,16 @@ ctest --preset release
 4. Нажмите «Сборка и запуск в README». Должна открыться новая вкладка на разделе сборки. Вернитесь в пример и проверьте прежнюю позицию прокрутки.
 5. Проверьте `+`, крестик, Ctrl+O/T/W или ⌘O/T/W и переключение вкладок физическими Ctrl+Tab и Ctrl+Shift+Tab. Закройте последнюю вкладку и проверьте появление стартовой страницы.
 
-Для каждой системы запишите результат сборки, вывод CTest и результат каждого шага GUI. На хосте Windows 11 24H2 x64 сборка и CTest выполнены с MSVC 19.51 и Qt 6.8.3. Гостевые результаты Windows 10, macOS и Linux пока не подтверждены.
+Для каждой системы запишите результат сборки, вывод CTest и результат каждого шага GUI. Локально сборка и CTest прошли на Windows 11 24H2 x64 с MSVC 19.51 и на Ubuntu 22.04.5 x86_64 в WSL2 с GCC 11.4, обе с Qt 6.8.3. Windows ZIP проверен запуском без Qt SDK в PATH, Linux AppImage — запуском через Xvfb и XCB. Гостевые результаты VMware и прогоны GitHub Actions пока не подтверждены.
+
+Для проверки готового артефакта перенесите в гостевую ОС пакет и папку `examples/` вместе с `README.md`, чтобы относительные ссылки примера работали. Запустите приложение по инструкции выше, повторите чек-лист и заполните таблицу отдельно для каждой архитектуры.
+
+| ОС | Архитектура | Запуск | GUI | Горячие клавиши | Открытие Markdown | Навигация | Обнаруженные ошибки |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Windows 10/11 | x64 | — | — | Ctrl+O/T/W, Ctrl+Tab | — | — | — |
+| macOS Intel | x86_64 | — | — | ⌘O/T/W, физический Ctrl+Tab | — | — | — |
+| macOS Apple Silicon | arm64 | — | — | ⌘O/T/W, физический Ctrl+Tab | — | — | — |
+| Linux | x86_64 | — | — | Ctrl+O/T/W, Ctrl+Tab | — | — | — |
 
 ## Ограничения версии 0.2.2
 

@@ -39,7 +39,9 @@ if(BUILD_TESTING)
     qt_add_executable(markdown_reader_tests tests/ReaderTest.cpp)
     set_target_properties(markdown_reader_tests PROPERTIES WIN32_EXECUTABLE FALSE)
     target_link_libraries(markdown_reader_tests PRIVATE markdown_reader_core Qt6::Test)
-    add_test(NAME markdown_reader_tests COMMAND markdown_reader_tests)
+    add_test(NAME markdown_reader_tests
+        COMMAND markdown_reader_tests -o -,txt -o qt-test.txt,txt
+    )
     set_tests_properties(markdown_reader_tests PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
     )
