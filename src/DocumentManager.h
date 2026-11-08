@@ -19,4 +19,5 @@ signals:
 
 private:
     QString activePath_;
+    QString markdown_;
 };

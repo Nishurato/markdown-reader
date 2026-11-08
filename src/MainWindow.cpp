@@ -1,25 +1,32 @@
 #include "MainWindow.h"
 
 #include "DocumentOutline.h"
+#include "DocumentTab.h"
 #include "MarkdownRenderer.h"
 
 #include <QDesktopServices>
 #include <QDir>
 #include <QFileDialog>
 #include <QFileInfo>
-#include <QGridLayout>
+#include <QHBoxLayout>
 #include <QKeySequence>
-#include <QLabel>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QShortcut>
+#include <QSignalBlocker>
 #include <QSplitter>
+#include <QStackedWidget>
 #include <QStatusBar>
+#include <QTabBar>
 #include <QToolButton>
 #include <QVBoxLayout>
+#include <memory>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent),
-      renderer_(new MarkdownRenderer),
+      tabs_(new QTabBar),
+      pages_(new QStackedWidget),
+      sidebar_(new QWidget),
       outline_(new DocumentOutline),
       splitter_(new QSplitter(Qt::Horizontal)),
       outlineToggle_(new QToolButton)
@@ -28,79 +35,185 @@ MainWindow::MainWindow(QWidget *parent)
     resize(1020, 680);
 
     auto *fileMenu = menuBar()->addMenu(tr("&Файл"));
+    auto *newAction = fileMenu->addAction(tr("Новая вкладка"), this, &MainWindow::newTab);
+    newAction->setShortcuts(QKeySequence::AddTab);
     auto *openAction = fileMenu->addAction(tr("&Открыть…"), this, &MainWindow::chooseFile);
     openAction->setShortcut(QKeySequence::Open);
+    auto *closeAction = fileMenu->addAction(tr("Закрыть вкладку"), this, [this] {
+        closeTab(tabs_->currentIndex());
+    });
+    closeAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_W));
+#ifdef Q_OS_MACOS
+    // Physical Control keeps Tab switching inside the window on macOS.
+    constexpr auto tabModifier = Qt::MetaModifier;
+#else
+    constexpr auto tabModifier = Qt::ControlModifier;
+#endif
+    new QShortcut(QKeySequence(tabModifier | Qt::Key_Tab), this, [this] { switchTab(1); });
+    new QShortcut(QKeySequence(tabModifier | Qt::ShiftModifier | Qt::Key_Tab),
+                  this, [this] { switchTab(-1); });
 
     auto *central = new QWidget(this);
     auto *layout = new QVBoxLayout(central);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
 
-    auto *toolbar = new QWidget(central);
+    auto *toolbar = new QWidget;
     toolbar->setObjectName(QStringLiteral("readerToolbar"));
     toolbar->setStyleSheet(QStringLiteral(
-        "#readerToolbar { background: #464646; color: #fff; }"
-        "QLabel, QToolButton { color: #fff; }"
-        "QToolButton { background: #464646; border: 1px solid #696969;"
-        " border-radius: 3px; padding: 4px 8px; }"
-        "QToolButton:hover, QToolButton:focus { background: #565656; }"));
-    auto *toolbarLayout = new QGridLayout(toolbar);
-    toolbarLayout->setContentsMargins(8, 4, 8, 4);
-    toolbarLayout->setColumnStretch(0, 1);
-    toolbarLayout->setColumnStretch(2, 1);
+        "#readerToolbar { background: #464646; }"
+        "QTabBar::tab { background: #535353; color: #fff; padding: 5px 8px; }"
+        "QTabBar::tab:selected { background: #303030; }"
+        "QTabBar::tab:hover { background: #626262; }"
+        "#newTabButton { background: #464646; color: #fff; padding: 3px 8px; }"
+        "#newTabButton:hover, #newTabButton:focus { background: #626262; }"));
+    auto *toolbarLayout = new QHBoxLayout(toolbar);
+    toolbarLayout->setContentsMargins(8, 3, 8, 0);
+    toolbarLayout->setSpacing(4);
+    tabs_->setDrawBase(false);
+    tabs_->setExpanding(false);
+    tabs_->setMovable(true);
+    tabs_->setTabsClosable(true);
+    tabs_->setUsesScrollButtons(true);
+    tabs_->setElideMode(Qt::ElideMiddle);
+    tabs_->setSelectionBehaviorOnRemove(QTabBar::SelectPreviousTab);
+    tabs_->setAccessibleName(tr("Вкладки документов"));
+    toolbarLayout->addWidget(tabs_);
+    auto *newTabButton = new QToolButton;
+    newTabButton->setObjectName(QStringLiteral("newTabButton"));
+    newTabButton->setText(QStringLiteral("+"));
+    newTabButton->setToolTip(tr("Новая вкладка"));
+    newTabButton->setAccessibleName(tr("Новая вкладка"));
+    toolbarLayout->addWidget(newTabButton);
+    toolbarLayout->addStretch(1);
+
+    sidebar_->setObjectName(QStringLiteral("readerSidebar"));
+    auto *sidebarLayout = new QVBoxLayout(sidebar_);
+    sidebarLayout->setContentsMargins(0, 0, 0, 0);
+    sidebarLayout->setSpacing(0);
+    auto *outlineControls = new QHBoxLayout;
+    outlineControls->setContentsMargins(8, 8, 8, 8);
     outlineToggle_->setObjectName(QStringLiteral("outlineToggle"));
     outlineToggle_->setCheckable(true);
-    outlineToggle_->setChecked(true);
-    outlineToggle_->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-    toolbarLayout->addWidget(outlineToggle_, 0, 0, Qt::AlignLeft);
-    auto *bookmarks = new QLabel(tr("Закладки"));
-    bookmarks->setAlignment(Qt::AlignCenter);
-    toolbarLayout->addWidget(bookmarks, 0, 1);
+    outlineToggle_->setStyleSheet(QStringLiteral(
+        "QToolButton { color: #242424; background: #f3f3f3; border: 1px solid #888;"
+        " border-radius: 3px; padding: 3px; }"
+        "QToolButton:hover, QToolButton:focus { background: #fff; }"));
+    outlineControls->addWidget(outlineToggle_);
+    outlineControls->addStretch(1);
+    sidebarLayout->addLayout(outlineControls);
+    sidebarLayout->addWidget(outline_, 1);
+    sidebarLayout->addStretch();
 
     outline_->setStyleSheet(QStringLiteral(
         "QTreeWidget { background: #282828; color: #f5f5f5; }"
         "QTreeWidget::item { padding: 4px; }"
         "QTreeWidget::item:selected { background: #4b5d71; color: white; }"));
-    outline_->setMinimumWidth(125);
-    splitter_->addWidget(outline_);
-    splitter_->addWidget(renderer_);
+    splitter_->addWidget(sidebar_);
+    splitter_->addWidget(pages_);
     splitter_->setChildrenCollapsible(false);
     splitter_->setStretchFactor(1, 1);
 
     layout->addWidget(toolbar);
     layout->addWidget(splitter_, 1);
     setCentralWidget(central);
-    setOutlineVisible(true);
-    toolbarLayout->setColumnMinimumWidth(2, outlineToggle_->sizeHint().width());
+    setOutlineVisible(false);
 
+    connect(newTabButton, &QToolButton::clicked, this, &MainWindow::newTab);
+    connect(tabs_, &QTabBar::tabCloseRequested, this, &MainWindow::closeTab);
+    connect(tabs_, &QTabBar::currentChanged, this, &MainWindow::updateCurrentTab);
     connect(outlineToggle_, &QToolButton::toggled, this, &MainWindow::setOutlineVisible);
-    connect(&manager_, &DocumentManager::documentOpened, this,
-            [this](const QString &markdown, const QString &path) {
-        renderer_->render(markdown, path);
-        outline_->rebuild(*renderer_->document());
-        setWindowTitle(tr("%1 — Markdown Reader").arg(QFileInfo(path).fileName()));
-    });
     connect(outline_, &DocumentOutline::headingSelected, this, [this](int position) {
-        DocumentOutline::navigate(*renderer_, position);
+        if (auto *tab = currentTab())
+            tab->navigateTo(position);
     });
-    connect(renderer_, &QTextBrowser::anchorClicked, this, &MainWindow::followLink);
-    renderer_->setPlainText(tr("Откройте Markdown-документ через меню «Файл»."));
+    newTab();
+}
+
+DocumentTab *MainWindow::currentTab() const
+{
+    return tabs_->tabData(tabs_->currentIndex()).value<DocumentTab *>();
+}
+
+void MainWindow::addTab(DocumentTab *tab)
+{
+    pages_->addWidget(tab);
+    connect(tab->renderer(), &QTextBrowser::anchorClicked, this,
+            [this, tab](const QUrl &link) { followLink(*tab, link); });
+    {
+        const QSignalBlocker blocker(tabs_);
+        const int index = tabs_->addTab(tr("Новая вкладка"));
+        // Store the page with the tab so dragging cannot change the association.
+        tabs_->setTabData(index, QVariant::fromValue(tab));
+        tabs_->setCurrentIndex(index);
+    }
+    updateCurrentTab();
+}
+
+void MainWindow::newTab()
+{
+    addTab(new DocumentTab);
+}
+
+void MainWindow::closeTab(int index)
+{
+    auto *tab = tabs_->tabData(index).value<DocumentTab *>();
+    if (!tab)
+        return;
+
+    tabs_->removeTab(index);
+    pages_->removeWidget(tab);
+    delete tab;
+    if (tabs_->count() == 0)
+        newTab();
+}
+
+void MainWindow::switchTab(int offset)
+{
+    const int count = tabs_->count();
+    if (count > 1)
+        tabs_->setCurrentIndex((tabs_->currentIndex() + offset + count) % count);
+}
+
+void MainWindow::updateCurrentTab()
+{
+    auto *tab = currentTab();
+    if (!tab)
+        return;
+
+    pages_->setCurrentWidget(tab);
+    const auto name = QFileInfo(tab->path()).fileName();
+    tabs_->setTabText(tabs_->currentIndex(), name.isEmpty() ? tr("Новая вкладка") : name);
+    tabs_->setTabToolTip(tabs_->currentIndex(), QDir::toNativeSeparators(tab->path()));
+    setWindowTitle(name.isEmpty() ? tr("Markdown Reader") : tr("%1 — Markdown Reader").arg(name));
+    outline_->rebuild(*tab->renderer()->document());
 }
 
 bool MainWindow::openFile(const QString &path)
 {
-    QString error;
-    if (manager_.open(path, error))
-        return true;
+    auto *tab = currentTab();
+    std::unique_ptr<DocumentTab> next;
+    if (!tab || !tab->path().isEmpty()) {
+        next = std::make_unique<DocumentTab>();
+        tab = next.get();
+    }
 
-    QMessageBox::warning(this, tr("Ошибка открытия"), error);
-    return false;
+    QString error;
+    if (!tab->open(path, error)) {
+        QMessageBox::warning(this, tr("Ошибка открытия"), error);
+        return false;
+    }
+    if (next)
+        addTab(next.release());
+    else
+        updateCurrentTab();
+    return true;
 }
 
 void MainWindow::chooseFile()
 {
-    const auto directory = manager_.activePath().isEmpty()
-        ? QString() : QFileInfo(manager_.activePath()).absolutePath();
+    const auto *tab = currentTab();
+    const auto directory = tab && !tab->path().isEmpty() ? QFileInfo(tab->path()).absolutePath() : QString();
     const auto path = QFileDialog::getOpenFileName(this, tr("Открыть Markdown"), directory,
         tr("Markdown (*.md *.markdown);;Все файлы (*)"));
     if (!path.isEmpty())
@@ -109,25 +222,36 @@ void MainWindow::chooseFile()
 
 void MainWindow::setOutlineVisible(bool visible)
 {
-    if (!visible)
+    if (!visible && !outline_->isHidden() && splitter_->sizes().first() >= 125)
         outlineWidth_ = splitter_->sizes().first();
 
-    outline_->setVisible(visible);
-    if (visible) {
-        const int available = width() - splitter_->handleWidth();
-        splitter_->setSizes({outlineWidth_, qMax(0, available - outlineWidth_)});
-    }
-
+    outlineToggle_->setChecked(visible);
     outlineToggle_->setArrowType(visible ? Qt::LeftArrow : Qt::RightArrow);
-    outlineToggle_->setText(tr("Заголовки"));
     const auto action = visible ? tr("Свернуть заголовки") : tr("Развернуть заголовки");
     outlineToggle_->setToolTip(action);
     outlineToggle_->setAccessibleName(action);
+    outline_->setVisible(visible);
+    sidebar_->setStyleSheet(visible
+        ? QStringLiteral("#readerSidebar { background: #282828; }")
+        : QStringLiteral("#readerSidebar { background: #dedede; }"));
+
+    splitter_->setHandleWidth(visible ? 5 : 0);
+    splitter_->handle(1)->setEnabled(visible);
+    if (visible) {
+        sidebar_->setMinimumWidth(125);
+        sidebar_->setMaximumWidth(QWIDGETSIZE_MAX);
+        const int available = splitter_->width() - splitter_->handleWidth();
+        splitter_->setSizes({outlineWidth_, qMax(0, available - outlineWidth_)});
+    } else {
+        const int railWidth = outlineToggle_->sizeHint().width() + 16;
+        sidebar_->setFixedWidth(railWidth);
+        splitter_->setSizes({railWidth, qMax(0, splitter_->width() - railWidth)});
+    }
 }
 
-void MainWindow::followLink(const QUrl &link)
+void MainWindow::followLink(DocumentTab &tab, const QUrl &link)
 {
-    const auto url = renderer_->resolveLink(link);
+    const auto url = tab.renderer()->resolveLink(link);
     if (url.isValid()) {
         const auto scheme = url.scheme();
         if ((scheme == QStringLiteral("http") || scheme == QStringLiteral("https"))
@@ -139,7 +263,7 @@ void MainWindow::followLink(const QUrl &link)
         if (url.isLocalFile() && url.host().isEmpty()
             && !QDir::fromNativeSeparators(path).startsWith(QStringLiteral("//"))
             && DocumentManager::isMarkdownPath(path)) {
-            if (path != manager_.activePath()) {
+            if (path != tab.path()) {
                 openFile(path);
                 return;
             }

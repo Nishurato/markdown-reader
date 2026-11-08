@@ -36,13 +36,14 @@ bool DocumentManager::open(const QString &path, QString &error)
     }
 
     QStringDecoder decoder(QStringDecoder::Utf8, QStringDecoder::Flag::Stateless);
-    const QString markdown = decoder(bytes);
+    QString markdown = decoder(bytes);
     if (decoder.hasError()) {
         error = tr("Файл «%1» должен быть сохранён в UTF-8.").arg(info.fileName());
         return false;
     }
 
     activePath_ = absolutePath;
-    emit documentOpened(markdown, activePath_);
+    markdown_.swap(markdown);
+    emit documentOpened(markdown_, activePath_);
     return true;
 }

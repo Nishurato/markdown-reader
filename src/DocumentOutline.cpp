@@ -1,21 +1,7 @@
 #include "DocumentOutline.h"
 
-#include <QAbstractTextDocumentLayout>
-#include <QScrollBar>
 #include <QTextBlock>
-#include <QTextBrowser>
-#include <QtMath>
-
-void DocumentOutline::navigate(QTextBrowser &browser, int position)
-{
-    const auto block = browser.document()->findBlock(position);
-    if (!block.isValid())
-        return;
-
-    browser.setTextCursor(QTextCursor(block));
-    const auto rect = browser.document()->documentLayout()->blockBoundingRect(block);
-    browser.verticalScrollBar()->setValue(qFloor(rect.top()));
-}
+#include <QTextDocument>
 
 DocumentOutline::DocumentOutline(QWidget *parent)
     : QTreeWidget(parent)

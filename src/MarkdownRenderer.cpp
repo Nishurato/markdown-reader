@@ -46,30 +46,41 @@ void prepareInlineContent(QTextDocument &document)
         int length;
         QString alt;
     };
+    struct InlineFormat {
+        int position;
+        int length;
+        QTextCharFormat format;
+    };
+    QTextCharFormat linkStyle;
+    linkStyle.setForeground(QColor(QStringLiteral("#1b55a0")));
+    linkStyle.setFontUnderline(true);
+
     QList<RemoteImage> remoteImages;
-    QList<QPair<int, int>> links;
+    QList<InlineFormat> formats;
     for (auto block = document.begin(); block.isValid(); block = block.next()) {
         for (auto it = block.begin(); !it.atEnd(); ++it) {
             const auto fragment = it.fragment();
             const auto format = fragment.charFormat();
-            if (format.isImageFormat()
-                && !isLocalImage(document.baseUrl().resolved(QUrl(format.toImageFormat().name())))) {
-                remoteImages.append({fragment.position(), fragment.length(),
-                                     format.stringProperty(QTextFormat::ImageAltText)});
+            if (format.isImageFormat()) {
+                if (isLocalImage(document.baseUrl().resolved(QUrl(format.toImageFormat().name())))) {
+                    auto image = format.toImageFormat();
+                    image.setMaximumWidth(QTextLength(QTextLength::PercentageLength, 100));
+                    formats.append({fragment.position(), fragment.length(), image});
+                } else {
+                    remoteImages.append({fragment.position(), fragment.length(),
+                                         format.stringProperty(QTextFormat::ImageAltText)});
+                }
             } else if (format.isAnchor()) {
-                links.append({fragment.position(), fragment.length()});
+                formats.append({fragment.position(), fragment.length(), linkStyle});
             }
         }
     }
 
     QTextCursor cursor(&document);
-    QTextCharFormat linkStyle;
-    linkStyle.setForeground(QColor(QStringLiteral("#1b55a0")));
-    linkStyle.setFontUnderline(true);
-    for (const auto &[position, length] : links) {
+    for (const auto &[position, length, format] : formats) {
         cursor.setPosition(position);
         cursor.setPosition(position + length, QTextCursor::KeepAnchor);
-        cursor.mergeCharFormat(linkStyle);
+        cursor.mergeCharFormat(format);
     }
 
     // Replace from the end so edits cannot move the remaining image positions.
@@ -98,7 +109,7 @@ void MarkdownRenderer::render(const QString &markdown, const QString &path)
     auto readingFont = font();
     readingFont.setPointSize(qMax(11, readingFont.pointSize()));
     next->setDefaultFont(readingFont);
-    next->setDocumentMargin(28);
+    next->setDocumentMargin(40);
     next->setUndoRedoEnabled(false);
     next->setBaseUrl(QUrl::fromLocalFile(path));
     // Qt's image layout can try to open the path directly if resource loading fails.

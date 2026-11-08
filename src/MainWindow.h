@@ -1,12 +1,12 @@
 #pragma once
 
-#include "DocumentManager.h"
-
 #include <QMainWindow>
 
 class DocumentOutline;
-class MarkdownRenderer;
+class DocumentTab;
 class QSplitter;
+class QStackedWidget;
+class QTabBar;
 class QToolButton;
 class QUrl;
 
@@ -20,12 +20,19 @@ public:
     bool openFile(const QString &path);
 
 private:
+    DocumentTab *currentTab() const;
+    void addTab(DocumentTab *tab);
+    void newTab();
+    void closeTab(int index);
+    void switchTab(int offset);
+    void updateCurrentTab();
     void chooseFile();
     void setOutlineVisible(bool visible);
-    void followLink(const QUrl &link);
+    void followLink(DocumentTab &tab, const QUrl &link);
 
-    DocumentManager manager_;
-    MarkdownRenderer *renderer_;
+    QTabBar *tabs_;
+    QStackedWidget *pages_;
+    QWidget *sidebar_;
     DocumentOutline *outline_;
     QSplitter *splitter_;
     QToolButton *outlineToggle_;

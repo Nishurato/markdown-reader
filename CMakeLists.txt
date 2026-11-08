@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
 
-project(MarkdownReader VERSION 0.1.0 LANGUAGES CXX)
+project(MarkdownReader VERSION 0.2.1 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -16,6 +16,7 @@ endif()
 add_library(markdown_reader_core STATIC
     src/DocumentManager.cpp src/DocumentManager.h
     src/DocumentOutline.cpp src/DocumentOutline.h
+    src/DocumentTab.cpp src/DocumentTab.h
     src/MainWindow.cpp src/MainWindow.h
     src/MarkdownRenderer.cpp src/MarkdownRenderer.h
 )
@@ -24,6 +25,7 @@ target_link_libraries(markdown_reader_core PUBLIC Qt6::Widgets)
 
 qt_add_executable(MarkdownReader WIN32 MACOSX_BUNDLE src/main.cpp)
 target_link_libraries(MarkdownReader PRIVATE markdown_reader_core)
+target_compile_definitions(MarkdownReader PRIVATE MARKDOWN_READER_VERSION="${PROJECT_VERSION}")
 set_target_properties(MarkdownReader PROPERTIES
     MACOSX_BUNDLE_BUNDLE_NAME "Markdown Reader"
     MACOSX_BUNDLE_GUI_IDENTIFIER org.markdownreader.app
