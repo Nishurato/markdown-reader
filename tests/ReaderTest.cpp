@@ -1,3 +1,4 @@
+#include "AnchorResolver.h"
 #include "DocumentManager.h"
 #include "DocumentOutline.h"
 #include "DocumentTab.h"
@@ -5,15 +6,21 @@
 #include "MarkdownRenderer.h"
 
 #include <QAbstractTextDocumentLayout>
+#include <QApplication>
 #include <QDesktopServices>
 #include <QDir>
 #include <QFile>
+#include <QFileDialog>
 #include <QImage>
+#include <QLabel>
+#include <QMenuBar>
 #include <QPointer>
+#include <QPushButton>
 #include <QScrollBar>
 #include <QSignalSpy>
 #include <QSplitter>
 #include <QStackedWidget>
+#include <QStatusBar>
 #include <QTabBar>
 #include <QTemporaryDir>
 #include <QTest>
@@ -21,6 +28,7 @@
 #include <QTextCursor>
 #include <QTextList>
 #include <QTextTable>
+#include <QTimer>
 #include <QToolButton>
 #include <QtMath>
 
@@ -44,6 +52,7 @@ class ReaderTest final : public QObject
     Q_OBJECT
 
 private slots:
+    void initTestCase() { QApplication::setAttribute(Qt::AA_DontUseNativeDialogs); }
     void opensMarkdown();
     void missingFileKeepsActiveDocument();
     void readsUtf8AndRejectsInvalidBytes();
@@ -59,6 +68,13 @@ private slots:
     void createsAndClosesTabs();
     void switchesIndependentDocuments();
     void keepsFixedPageWidth();
+    void showsStartPage();
+    void opensFromStartPage();
+    void keepsStartPageAfterCancel();
+    void normalizesAnchorSlugs();
+    void followsAnchorsInCurrentTab();
+    void followsAnchorInAnotherFile();
+    void reportsMissingAnchors();
 
     void captureExternalUrl(const QUrl &url) { externalUrl_ = url; }
 
@@ -355,10 +371,12 @@ void ReaderTest::createsAndClosesTabs()
     QCOMPARE(tabs->count(), 2);
     const QPointer<DocumentTab> second = activeTab(window);
     QVERIFY(second && second != first);
-    QTest::keyClick(second->renderer(), Qt::Key_T, Qt::ControlModifier);
+    QVERIFY(second->findChild<QPushButton *>(QStringLiteral("openFileButton")));
+    QVERIFY(!second->renderer());
+    QTest::keyClick(second->findChild<QPushButton *>(), Qt::Key_T, Qt::ControlModifier);
     QTRY_COMPARE(tabs->count(), 3);
     const QPointer<DocumentTab> third = activeTab(window);
-    QTest::keyClick(third->renderer(), Qt::Key_W, Qt::ControlModifier);
+    QTest::keyClick(third->findChild<QPushButton *>(), Qt::Key_W, Qt::ControlModifier);
     QTRY_COMPARE(tabs->count(), 2);
     QVERIFY(third.isNull());
 
@@ -370,7 +388,8 @@ void ReaderTest::createsAndClosesTabs()
     QVERIFY(window.isVisible());
     QCOMPARE(tabs->count(), 1);
     QVERIFY(activeTab(window)->path().isEmpty());
-    QVERIFY(!activeTab(window)->renderer()->toPlainText().isEmpty());
+    QVERIFY(!activeTab(window)->renderer());
+    QVERIFY(activeTab(window)->findChild<QPushButton *>(QStringLiteral("openFileButton")));
 }
 
 void ReaderTest::switchesIndependentDocuments()
@@ -459,6 +478,213 @@ void ReaderTest::keepsFixedPageWidth()
     QTRY_VERIFY(tab->horizontalScrollBar()->maximum() > 0);
     QCOMPARE(browser->width(), 800);
     QCOMPARE(browser->document()->textWidth(), 800.0);
+}
+
+void ReaderTest::showsStartPage()
+{
+    MainWindow window;
+    window.show();
+    auto *tab = activeTab(window);
+    QVERIFY(tab);
+    QCOMPARE(window.findChild<QTabBar *>()->count(), 1);
+    QVERIFY(!window.findChild<QMenuBar *>());
+    QVERIFY(!tab->renderer());
+    QCOMPARE(tab->widget()->objectName(), QStringLiteral("startPage"));
+    QVERIFY(tab->findChild<QPushButton *>(QStringLiteral("openFileButton"))->isVisible());
+    const auto shortcut = QKeySequence(QKeySequence::Open).toString(QKeySequence::NativeText);
+    QVERIFY(tab->findChild<QLabel *>(QStringLiteral("startPageHint"))->text().contains(shortcut));
+}
+
+void ReaderTest::opensFromStartPage()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const auto path = dir.filePath(QStringLiteral("opened.md"));
+    QVERIFY(writeFile(path, "# Opened"));
+
+    MainWindow window;
+    window.show();
+    auto *tab = activeTab(window);
+    const QPointer<QWidget> startPage = tab->widget();
+    auto *button = tab->findChild<QPushButton *>(QStringLiteral("openFileButton"));
+    bool sawDialog = false;
+    QTimer::singleShot(0, &window, [&] {
+        auto *dialog = qobject_cast<QFileDialog *>(QApplication::activeModalWidget());
+        if (!dialog) {
+            QApplication::closeAllWindows();
+            return;
+        }
+        sawDialog = true;
+        dialog->selectFile(path);
+        QMetaObject::invokeMethod(dialog, "accept");
+        if (dialog->isVisible())
+            dialog->reject();
+    });
+    QTest::mouseClick(button, Qt::LeftButton);
+
+    QVERIFY(sawDialog);
+    QCOMPARE(window.findChild<QTabBar *>()->count(), 1);
+    QCOMPARE(activeTab(window), tab);
+    QCOMPARE(tab->path(), path);
+    QCOMPARE(tab->renderer()->toPlainText(), QStringLiteral("Opened"));
+    QTRY_VERIFY(startPage.isNull());
+}
+
+void ReaderTest::keepsStartPageAfterCancel()
+{
+    MainWindow window;
+    window.show();
+    window.activateWindow();
+    QTRY_VERIFY(window.isActiveWindow());
+    auto *tab = activeTab(window);
+    auto *page = tab->widget();
+    auto *button = tab->findChild<QPushButton *>(QStringLiteral("openFileButton"));
+    bool sawDialog = false;
+    QTimer::singleShot(0, &window, [&] {
+        auto *dialog = qobject_cast<QFileDialog *>(QApplication::activeModalWidget());
+        if (!dialog) {
+            QApplication::closeAllWindows();
+            return;
+        }
+        sawDialog = true;
+        dialog->reject();
+    });
+    QTest::keyClick(button, Qt::Key_O, Qt::ControlModifier);
+
+    QVERIFY(sawDialog);
+    QCOMPARE(activeTab(window), tab);
+    QCOMPARE(tab->widget(), page);
+    QVERIFY(!tab->renderer());
+    QVERIFY(button->isVisible());
+}
+
+void ReaderTest::normalizesAnchorSlugs()
+{
+    QCOMPARE(AnchorResolver::slugForHeading(QStringLiteral("  Café  Setup!  ")),
+             QStringLiteral("café--setup"));
+    QCOMPARE(AnchorResolver::slugForHeading(QStringLiteral("УСТАНОВКА — шаг_1")),
+             QStringLiteral("установка--шаг_1"));
+    QCOMPARE(AnchorResolver::normalizeFragment(QStringLiteral("CAFE\u0301")),
+             QStringLiteral("café"));
+
+    MarkdownRenderer browser;
+    browser.render(QStringLiteral("# Section\n## Section-1\n### Section\n#### Section\n"
+                                  "##### Fifth\n###### Sixth\n\nPlain text"), {});
+    const auto index = AnchorResolver::indexHeadings(*browser.document());
+    const QStringList slugs{QStringLiteral("section"), QStringLiteral("section-1"),
+                            QStringLiteral("section-2"), QStringLiteral("section-3"),
+                            QStringLiteral("fifth"), QStringLiteral("sixth")};
+    QCOMPARE(index.size(), slugs.size());
+    int next = 0;
+    for (auto block = browser.document()->begin(); block.isValid(); block = block.next()) {
+        if (block.blockFormat().headingLevel() > 0)
+            QCOMPARE(index.value(slugs.at(next++), -1), block.position());
+    }
+    QCOMPARE(next, slugs.size());
+    QVERIFY(!index.contains(QStringLiteral("plain-text")));
+}
+
+void ReaderTest::followsAnchorsInCurrentTab()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const auto path = dir.filePath(QStringLiteral("anchors.md"));
+    const QByteArray filler = QByteArray("Filler paragraph.\n\n").repeated(80);
+    QVERIFY(writeFile(path, "# Home\n\n" + filler + "# Install Guide\n\n" + filler
+                           + QStringLiteral("## Установка\n\n").toUtf8() + filler
+                           + "## Repeat\n\n" + filler + "## Repeat\n\n" + filler));
+
+    MainWindow window;
+    window.show();
+    QVERIFY(window.openFile(path));
+    auto *tab = activeTab(window);
+    auto *browser = tab->renderer();
+    auto *document = browser->document();
+    QVERIFY(QFile::remove(path));
+
+    emit browser->anchorClicked(QUrl(QStringLiteral("#INSTALL-GUIDE")));
+    QTRY_COMPARE(browser->textCursor().block().text(), QStringLiteral("Install Guide"));
+    QVERIFY(tab->verticalScrollBar()->value() > 0);
+
+    emit browser->anchorClicked(QUrl(QStringLiteral("#%D0%A3%D0%A1%D0%A2%D0%90%D0%9D%D0%9E%D0%92%D0%9A%D0%90")));
+    QTRY_COMPARE(browser->textCursor().block().text(), QStringLiteral("Установка"));
+
+    const auto first = document->find(QStringLiteral("Repeat"));
+    const auto second = document->find(QStringLiteral("Repeat"), first);
+    QVERIFY(!second.isNull());
+    emit browser->anchorClicked(QUrl(QStringLiteral("#repeat-1")));
+    QTRY_COMPARE(browser->textCursor().position(), second.block().position());
+
+    emit browser->anchorClicked(QUrl(QStringLiteral("#")));
+    QTRY_COMPARE(tab->verticalScrollBar()->value(), 0);
+    QCOMPARE(window.findChild<QTabBar *>()->count(), 1);
+    QCOMPARE(activeTab(window), tab);
+    QCOMPARE(browser->document(), document);
+}
+
+void ReaderTest::followsAnchorInAnotherFile()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const auto source = dir.filePath(QStringLiteral("source.md"));
+    const auto target = dir.filePath(QStringLiteral("guide file.markdown"));
+    const QByteArray filler = QByteArray("Filler paragraph.\n\n").repeated(80);
+    QVERIFY(writeFile(source, "# Source\n\n" + filler));
+    QVERIFY(writeFile(target, "# Guide\n\n" + filler + "## Installation\n\n" + filler));
+
+    MainWindow window;
+    window.show();
+    QVERIFY(window.openFile(source));
+    auto *sourceTab = activeTab(window);
+    QTRY_VERIFY(sourceTab->verticalScrollBar()->maximum() > 300);
+    sourceTab->verticalScrollBar()->setValue(300);
+    emit sourceTab->renderer()->anchorClicked(QUrl(QStringLiteral("guide%20file.markdown#installation")));
+
+    auto *tabs = window.findChild<QTabBar *>();
+    QCOMPARE(tabs->count(), 2);
+    auto *targetTab = activeTab(window);
+    QVERIFY(targetTab != sourceTab);
+    QCOMPARE(targetTab->path(), target);
+    QTRY_COMPARE(targetTab->renderer()->textCursor().block().text(), QStringLiteral("Installation"));
+    QVERIFY(targetTab->verticalScrollBar()->value() > 0);
+
+    const int targetScroll = targetTab->verticalScrollBar()->value();
+    tabs->setCurrentIndex(0);
+    QCOMPARE(activeTab(window), sourceTab);
+    QCOMPARE(sourceTab->verticalScrollBar()->value(), 300);
+    tabs->setCurrentIndex(1);
+    QCOMPARE(targetTab->verticalScrollBar()->value(), targetScroll);
+}
+
+void ReaderTest::reportsMissingAnchors()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const auto source = dir.filePath(QStringLiteral("source.md"));
+    const auto target = dir.filePath(QStringLiteral("target.md"));
+    const QByteArray filler = QByteArray("Missing anchor.\n\n").repeated(80);
+    QVERIFY(writeFile(source, "# Source\n\n" + filler));
+    QVERIFY(writeFile(target, "# Target"));
+
+    MainWindow window;
+    window.show();
+    QVERIFY(window.openFile(source));
+    auto *tab = activeTab(window);
+    auto *tabs = window.findChild<QTabBar *>();
+    QTRY_VERIFY(tab->verticalScrollBar()->maximum() > 300);
+    tab->verticalScrollBar()->setValue(300);
+    emit tab->renderer()->anchorClicked(QUrl(QStringLiteral("#missing-anchor")));
+    QCOMPARE(tabs->count(), 1);
+    QCOMPARE(activeTab(window), tab);
+    QVERIFY(window.statusBar()->currentMessage().contains(QStringLiteral("missing-anchor")));
+    QCOMPARE(tab->verticalScrollBar()->value(), 300);
+
+    emit tab->renderer()->anchorClicked(QUrl(QStringLiteral("target.md#other-missing")));
+    QCOMPARE(tabs->count(), 2);
+    QCOMPARE(activeTab(window)->path(), target);
+    QCOMPARE(activeTab(window)->verticalScrollBar()->value(), 0);
+    QVERIFY(window.statusBar()->currentMessage().contains(QStringLiteral("other-missing")));
+    QCOMPARE(tab->verticalScrollBar()->value(), 300);
 }
 
 QTEST_MAIN(ReaderTest)

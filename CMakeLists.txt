@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
 
-project(MarkdownReader VERSION 0.2.1 LANGUAGES CXX)
+project(MarkdownReader VERSION 0.2.2 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -14,6 +14,7 @@ if(MSVC)
 endif()
 
 add_library(markdown_reader_core STATIC
+    src/AnchorResolver.cpp src/AnchorResolver.h
     src/DocumentManager.cpp src/DocumentManager.h
     src/DocumentOutline.cpp src/DocumentOutline.h
     src/DocumentTab.cpp src/DocumentTab.h

@@ -21,6 +21,7 @@ public:
 
 private:
     DocumentTab *currentTab() const;
+    DocumentTab *loadFile(const QString &path, DocumentTab *tab);
     void addTab(DocumentTab *tab);
     void newTab();
     void closeTab(int index);

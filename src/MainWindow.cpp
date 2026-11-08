@@ -10,7 +10,6 @@
 #include <QFileInfo>
 #include <QHBoxLayout>
 #include <QKeySequence>
-#include <QMenuBar>
 #include <QMessageBox>
 #include <QShortcut>
 #include <QSignalBlocker>
@@ -34,15 +33,11 @@ MainWindow::MainWindow(QWidget *parent)
     setWindowTitle(tr("Markdown Reader"));
     resize(1020, 680);
 
-    auto *fileMenu = menuBar()->addMenu(tr("&Файл"));
-    auto *newAction = fileMenu->addAction(tr("Новая вкладка"), this, &MainWindow::newTab);
-    newAction->setShortcuts(QKeySequence::AddTab);
-    auto *openAction = fileMenu->addAction(tr("&Открыть…"), this, &MainWindow::chooseFile);
-    openAction->setShortcut(QKeySequence::Open);
-    auto *closeAction = fileMenu->addAction(tr("Закрыть вкладку"), this, [this] {
+    new QShortcut(QKeySequence::AddTab, this, this, &MainWindow::newTab);
+    new QShortcut(QKeySequence::Open, this, this, &MainWindow::chooseFile);
+    new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_W), this, [this] {
         closeTab(tabs_->currentIndex());
     });
-    closeAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_W));
 #ifdef Q_OS_MACOS
     // Physical Control keeps Tab switching inside the window on macOS.
     constexpr auto tabModifier = Qt::MetaModifier;
@@ -138,7 +133,8 @@ DocumentTab *MainWindow::currentTab() const
 void MainWindow::addTab(DocumentTab *tab)
 {
     pages_->addWidget(tab);
-    connect(tab->renderer(), &QTextBrowser::anchorClicked, this,
+    connect(tab, &DocumentTab::openRequested, this, &MainWindow::chooseFile);
+    connect(tab, &DocumentTab::linkActivated, this,
             [this, tab](const QUrl &link) { followLink(*tab, link); });
     {
         const QSignalBlocker blocker(tabs_);
@@ -186,12 +182,19 @@ void MainWindow::updateCurrentTab()
     tabs_->setTabText(tabs_->currentIndex(), name.isEmpty() ? tr("Новая вкладка") : name);
     tabs_->setTabToolTip(tabs_->currentIndex(), QDir::toNativeSeparators(tab->path()));
     setWindowTitle(name.isEmpty() ? tr("Markdown Reader") : tr("%1 — Markdown Reader").arg(name));
-    outline_->rebuild(*tab->renderer()->document());
+    if (auto *renderer = tab->renderer())
+        outline_->rebuild(*renderer->document());
+    else
+        outline_->clear();
 }
 
 bool MainWindow::openFile(const QString &path)
 {
-    auto *tab = currentTab();
+    return loadFile(path, currentTab()) != nullptr;
+}
+
+DocumentTab *MainWindow::loadFile(const QString &path, DocumentTab *tab)
+{
     std::unique_ptr<DocumentTab> next;
     if (!tab || !tab->path().isEmpty()) {
         next = std::make_unique<DocumentTab>();
@@ -201,13 +204,13 @@ bool MainWindow::openFile(const QString &path)
     QString error;
     if (!tab->open(path, error)) {
         QMessageBox::warning(this, tr("Ошибка открытия"), error);
-        return false;
+        return nullptr;
     }
     if (next)
         addTab(next.release());
     else
         updateCurrentTab();
-    return true;
+    return tab;
 }
 
 void MainWindow::chooseFile()
@@ -263,12 +266,15 @@ void MainWindow::followLink(DocumentTab &tab, const QUrl &link)
         if (url.isLocalFile() && url.host().isEmpty()
             && !QDir::fromNativeSeparators(path).startsWith(QStringLiteral("//"))
             && DocumentManager::isMarkdownPath(path)) {
-            if (path != tab.path()) {
-                openFile(path);
-                return;
+            auto *target = path == tab.path() ? &tab : loadFile(path, nullptr);
+            if (target && url.hasFragment()) {
+                const auto fragment = url.fragment(QUrl::FullyDecoded);
+                if (!target->navigateToAnchor(fragment))
+                    statusBar()->showMessage(tr("Якорь «%1» не найден.").arg(fragment), 5000);
+                else if (auto *bar = findChild<QStatusBar *>())
+                    bar->clearMessage();
             }
-            if (!url.hasFragment())
-                return;
+            return;
         }
     }
 
