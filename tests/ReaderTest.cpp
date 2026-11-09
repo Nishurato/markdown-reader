@@ -17,6 +17,7 @@
 #include <QPointer>
 #include <QPushButton>
 #include <QScrollBar>
+#include <QScopeGuard>
 #include <QSignalSpy>
 #include <QSplitter>
 #include <QStackedWidget>
@@ -62,6 +63,9 @@ private slots:
     void rendersWithoutHeadings();
     void rendersEmptyFile();
     void rendersMarkdownFeatures();
+#ifdef Q_OS_LINUX
+    void selectedListMarkerRemainsReadable();
+#endif
     void loadsLocalImagesOnly();
     void opensRelativeAndExternalLinks();
     void togglesAndRestoresOutline();
@@ -265,6 +269,50 @@ void ReaderTest::rendersMarkdownFeatures()
     QCOMPARE(table->rows(), 2);
     QCOMPARE(table->columns(), 2);
 }
+
+#ifdef Q_OS_LINUX
+void ReaderTest::selectedListMarkerRemainsReadable()
+{
+    const auto previousPalette = QApplication::palette();
+    const auto restorePalette = qScopeGuard([&] { QApplication::setPalette(previousPalette); });
+    auto theme = previousPalette;
+    const QColor highlight(232, 232, 232);
+    theme.setColor(QPalette::Highlight, highlight);
+    theme.setColor(QPalette::HighlightedText, Qt::white);
+    QApplication::setPalette(theme);
+
+    MarkdownRenderer browser;
+    browser.resize(420, 240);
+    browser.render(QStringLiteral("Outside\n\n- First marker\n- Second marker\n- Last marker"), {});
+    browser.show();
+    browser.setFocus();
+    QCoreApplication::processEvents();
+    const auto block = browser.document()->find(QStringLiteral("Second marker")).block();
+    QVERIFY(block.isValid());
+    const QRect line = browser.cursorRect(QTextCursor(block));
+    const QRect markerArea(line.left() - 24, line.top(), 22, line.height());
+    const auto darkPixels = [](const QImage &image) {
+        int count = 0;
+        for (int y = 0; y < image.height(); ++y)
+            for (int x = 0; x < image.width(); ++x)
+                count += image.pixelColor(x, y).lightness() < 110;
+        return count;
+    };
+    QVERIFY(darkPixels(browser.viewport()->grab(markerArea).toImage()) > 0);
+
+    QTextCursor selection(browser.document());
+    selection.setPosition(block.position() + block.length() - 1, QTextCursor::KeepAnchor);
+    browser.setTextCursor(selection);
+    QCOMPARE(browser.palette().color(QPalette::Highlight), highlight);
+    QVERIFY(browser.textCursor().selectedText().contains(QStringLiteral("Second marker")));
+    QVERIFY(darkPixels(browser.viewport()->grab(markerArea).toImage()) > 0);
+
+    theme.setColor(QPalette::Highlight, QColor(20, 42, 80));
+    QApplication::setPalette(theme);
+    QTRY_COMPARE(browser.palette().color(QPalette::Active, QPalette::HighlightedText),
+                 QColor(Qt::white));
+}
+#endif
 
 void ReaderTest::loadsLocalImagesOnly()
 {

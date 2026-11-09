@@ -1,6 +1,6 @@
 # Markdown Reader
 
-Markdown Reader 0.2.2 — настольная читалка Markdown. Для чтения локальных файлов соединение с интернетом не требуется.
+Markdown Reader 0.2.3 — настольная читалка Markdown. Для чтения локальных файлов соединение с интернетом не требуется.
 
 Приложение использует C++20, Qt 6.8+ Widgets, QTextDocument и QTextBrowser. Сборка выполняется через CMake 3.21+ и Ninja, автоматические тесты запускаются через CTest и Qt Test.
 
@@ -77,10 +77,10 @@ Workflow [Cross-Platform Builds](.github/workflows/build.yml) собирает R
 
 | GitHub runner | Компилятор | Файл внутри артефакта |
 | --- | --- | --- |
-| `windows-2022` | MSVC 2022 x64 | `MarkdownReader-0.2.2-Windows-x64.zip` |
-| `ubuntu-22.04` | GCC x86_64 | `MarkdownReader-0.2.2-Linux-x86_64.AppImage` |
-| `macos-15-intel` | Apple Clang x86_64 | `MarkdownReader-0.2.2-macOS-Intel.dmg` |
-| `macos-15` | Apple Clang arm64 | `MarkdownReader-0.2.2-macOS-ARM64.dmg` |
+| `windows-2022` | MSVC 2022 x64 | `MarkdownReader-0.2.3-Windows-x64.zip` |
+| `ubuntu-22.04` | GCC x86_64 | `MarkdownReader-0.2.3-Linux-x86_64.AppImage` |
+| `macos-15-intel` | Apple Clang x86_64 | `MarkdownReader-0.2.3-macOS-Intel.dmg` |
+| `macos-15` | Apple Clang arm64 | `MarkdownReader-0.2.3-macOS-ARM64.dmg` |
 
 Для ручного запуска откройте вкладку **Actions**, выберите **Cross-Platform Builds**, затем **Run workflow** и ветку. Кнопка ручного запуска доступна после появления workflow в ветке по умолчанию. После завершения откройте страницу прогона и скачайте нужный пакет в разделе **Artifacts**. Распакуйте внешний ZIP от GitHub Actions, чтобы получить файл из таблицы. При сбое скачайте соответствующий артефакт `tests-*` и проверьте лог задания.
 
@@ -93,7 +93,7 @@ Workflow [Cross-Platform Builds](.github/workflows/build.yml) собирает R
 **Linux x86_64.** Пакет включает библиотеки Qt и плагины XCB и изображений. Нужен X11 или XWayland и системные библиотеки дистрибутива. Ориентир совместимости — Ubuntu 22.04 с glibc 2.35. На более старых дистрибутивах запуск не подтверждён.
 
 ```sh
-app=./MarkdownReader-0.2.2-Linux-x86_64.AppImage
+app=./MarkdownReader-0.2.3-Linux-x86_64.AppImage
 chmod +x "$app"
 "$app"
 # Запуск без FUSE
@@ -109,9 +109,9 @@ QT_DEBUG_PLUGINS=1 QT_QPA_PLATFORM=xcb ./squashfs-root/AppRun
 Если инструмент создания AppImage недоступен, после сборки и CTest тот же сценарий может упаковать подготовленный каталог в переносимый архив:
 
 ```sh
-bash .github/scripts/package-linux.sh build/release "$HOME/Qt/6.8.3/gcc_64" 0.2.2 \
-  build/packages/MarkdownReader-0.2.2-Linux-x86_64.tar.gz
-tar -xzf build/packages/MarkdownReader-0.2.2-Linux-x86_64.tar.gz
+bash .github/scripts/package-linux.sh build/release "$HOME/Qt/6.8.3/gcc_64" 0.2.3 \
+  build/packages/MarkdownReader-0.2.3-Linux-x86_64.tar.gz
+tar -xzf build/packages/MarkdownReader-0.2.3-Linux-x86_64.tar.gz
 ./MarkdownReader.AppDir/AppRun
 ```
 
@@ -131,20 +131,34 @@ tar -xzf build/packages/MarkdownReader-0.2.2-Linux-x86_64.tar.gz
 2. Откройте `examples/example.md` кнопкой и проверьте локальное изображение, форматирование, панель заголовков и прокрутку. Файл должен занять ту же вкладку.
 3. Нажмите ссылки «Форматирование в этой вкладке» и «Второй одноимённый раздел». Убедитесь, что меняется позиция прокрутки, а число вкладок сохраняется.
 4. Нажмите «Сборка и запуск в README». Должна открыться новая вкладка на разделе сборки. Вернитесь в пример и проверьте прежнюю позицию прокрутки.
-5. Проверьте `+`, крестик, Ctrl+O/T/W или ⌘O/T/W и переключение вкладок физическими Ctrl+Tab и Ctrl+Shift+Tab. Закройте последнюю вкладку и проверьте появление стартовой страницы.
+5. Проверьте `+`, крестик, Ctrl+O/T/W или ⌘O/T/W и переключение вкладок физическими Ctrl+Tab и Ctrl+Shift+Tab. На macOS отдельно проверьте, что Option+O/T/W не вызывает эти команды, а ⌘Tab переключает приложения. Закройте последнюю вкладку и проверьте появление стартовой страницы.
+6. Проверьте маркированный и нумерованный списки. Выделите текст от строки перед списком до второго пункта, снимите фокус с окна и верните его. Маркеры и текст должны оставаться читаемыми. Скопируйте выделение через Ctrl+C или ⌘C и вставьте в текстовый редактор. Проверьте прокрутку колесом и клавишами Page Up/Page Down.
 
-Для каждой системы запишите результат сборки, вывод CTest и результат каждого шага GUI. Локально сборка и CTest прошли на Windows 11 24H2 x64 с MSVC 19.51 и на Ubuntu 22.04.5 x86_64 в WSL2 с GCC 11.4, обе с Qt 6.8.3. Windows ZIP проверен запуском без Qt SDK в PATH, Linux AppImage — запуском через Xvfb и XCB. Гостевые результаты VMware и прогоны GitHub Actions пока не подтверждены.
+Для каждой системы запишите результат сборки, вывод CTest и результат каждого шага GUI. На Linux Mint, если маркер трудно различить, сравните запуск в обычной теме и с `QT_STYLE_OVERRIDE=Fusion` перед командой запуска пакета. Приложите снимки выделения в активном и неактивном окне, вывод `cat /etc/os-release`, имя темы и значения `XDG_CURRENT_DESKTOP`, `XDG_SESSION_TYPE`, `QT_QPA_PLATFORMTHEME` и `QT_STYLE_OVERRIDE`.
 
 Для проверки готового артефакта перенесите в гостевую ОС пакет и папку `examples/` вместе с `README.md`, чтобы относительные ссылки примера работали. Запустите приложение по инструкции выше, повторите чек-лист и заполните таблицу отдельно для каждой архитектуры.
 
 | ОС | Архитектура | Запуск | GUI | Горячие клавиши | Открытие Markdown | Навигация | Обнаруженные ошибки |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Windows 10/11 | x64 | — | — | Ctrl+O/T/W, Ctrl+Tab | — | — | — |
+| Windows 10 | x64 | — | — | Ctrl+O/T/W, Ctrl+Tab | — | — | — |
+| Windows 11 | x64 | — | — | Ctrl+O/T/W, Ctrl+Tab | — | — | — |
 | macOS Intel | x86_64 | — | — | ⌘O/T/W, физический Ctrl+Tab | — | — | — |
 | macOS Apple Silicon | arm64 | — | — | ⌘O/T/W, физический Ctrl+Tab | — | — | — |
-| Linux | x86_64 | — | — | Ctrl+O/T/W, Ctrl+Tab | — | — | — |
+| Linux Mint | x86_64 | — | — | Ctrl+O/T/W, Ctrl+Tab | — | — | — |
 
-## Ограничения версии 0.2.2
+## Производительность
+
+[Методика и результаты измерений](docs/performance.md) описывают генератор файлов объёмом 1 МиБ, замер первого отображения и память с одной и пятью вкладками.
+
+## Изменения в 0.2.3
+
+- Windows CI обнаруживает Visual Studio через `vswhere.exe` из PowerShell и настраивает MSVC x64 через Developer PowerShell. Это устраняет ошибку разбора пути с пробелами.
+- На Linux рендерер сохраняет фон выделения из темы и повышает контраст текста и маркеров, если выбранные темой цвета трудно различить.
+- Добавлены воспроизводимые измерения времени отображения и памяти. Измерительный исполняемый файл собирается отдельно.
+
+В 0.2.3 локально прошли сборка, CTest и проверка пакетов на Windows 11 24H2 x64 и Ubuntu 22.04.5 x86_64 в WSL2. Linux-тест маркера также прошёл через XCB под Xvfb. Новый прогон GitHub Actions и ручные проверки в гостевых ОС пока не выполнены.
+
+## Ограничения версии 0.2.3
 
 - Форматирование определяется [QTextDocument](https://doc.qt.io/qt-6/qtextdocument.html#setMarkdown) в режиме `MarkdownDialectGitHub`. Встроенный HTML отключён. Полное совпадение с отображением на GitHub не предполагается.
 - В Qt 6.8.3 первая ячейка заголовка таблицы сразу после блока кода может отображаться ниже соседних ячеек.

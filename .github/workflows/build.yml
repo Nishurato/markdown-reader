@@ -8,7 +8,7 @@ permissions:
   contents: read
 
 env:
-  APP_VERSION: '0.2.2'
+  APP_VERSION: '0.2.3'
   QT_VERSION: '6.8.3'
 
 jobs:
@@ -44,7 +44,7 @@ jobs:
             package: .dmg
 
     env:
-      PACKAGE_NAME: MarkdownReader-0.2.2-${{ matrix.platform }}
+      PACKAGE_NAME: MarkdownReader-0.2.3-${{ matrix.platform }}
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -71,13 +71,8 @@ jobs:
 
       - name: Configure and build Release (Windows)
         if: runner.os == 'Windows'
-        shell: cmd
-        run: |
-          for /f "usebackq delims=" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -version "[17.0,18.0)" -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VS_PATH=%%i"
-          if not defined VS_PATH exit /b 1
-          call "%VS_PATH%\Common7\Tools\VsDevCmd.bat" -arch=x64 -host_arch=x64 || exit /b 1
-          cmake --preset release "-DCMAKE_PREFIX_PATH=%QT_ROOT_DIR%" -DCMAKE_CXX_COMPILER=cl || exit /b 1
-          cmake --build --preset release
+        shell: pwsh
+        run: .github/scripts/build-windows.ps1 -QtDir $env:QT_ROOT_DIR -VisualStudioVersion '[17.0,18.0)'
 
       - name: Configure and build Release (Linux and macOS)
         if: runner.os != 'Windows'

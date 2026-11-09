@@ -8,7 +8,31 @@
 #include <QTextDocument>
 #include <QVariant>
 
+#ifdef Q_OS_LINUX
+#include <QApplication>
+#include <QEvent>
+#include <cmath>
+#endif
+
 namespace {
+
+#ifdef Q_OS_LINUX
+double luminance(const QColor &color)
+{
+    const auto linear = [](double channel) {
+        return channel <= 0.04045 ? channel / 12.92 : std::pow((channel + 0.055) / 1.055, 2.4);
+    };
+    return 0.2126 * linear(color.redF()) + 0.7152 * linear(color.greenF())
+        + 0.0722 * linear(color.blueF());
+}
+
+double contrast(const QColor &first, const QColor &second)
+{
+    const auto a = luminance(first) + 0.05;
+    const auto b = luminance(second) + 0.05;
+    return qMax(a, b) / qMin(a, b);
+}
+#endif
 
 bool isLocalImage(const QUrl &url)
 {
@@ -100,7 +124,42 @@ MarkdownRenderer::MarkdownRenderer(QWidget *parent)
     setOpenExternalLinks(false);
     setFrameShape(QFrame::NoFrame);
     setStyleSheet(QStringLiteral("QTextBrowser { background: #fafafa; color: #242424; }"));
+#ifdef Q_OS_LINUX
+    updateSelectionPalette();
+#endif
 }
+
+#ifdef Q_OS_LINUX
+void MarkdownRenderer::changeEvent(QEvent *event)
+{
+    QTextBrowser::changeEvent(event);
+    if (event->type() == QEvent::PaletteChange || event->type() == QEvent::ApplicationPaletteChange)
+        updateSelectionPalette();
+}
+
+void MarkdownRenderer::updateSelectionPalette()
+{
+    const auto theme = QApplication::palette(this);
+    const auto current = palette();
+    QPalette adjusted;
+    bool changed = false;
+    for (const auto group : {QPalette::Active, QPalette::Inactive, QPalette::Disabled}) {
+        auto text = theme.color(group, QPalette::HighlightedText);
+        const auto background = current.color(group, QPalette::Highlight);
+        // Qt also uses this selection brush to draw list markers.
+        if (group != QPalette::Disabled && contrast(text, background) < 4.5) {
+            text = current.color(group, QPalette::Text);
+            if (contrast(text, background) < 4.5)
+                text = contrast(Qt::black, background) > contrast(Qt::white, background)
+                    ? Qt::black : Qt::white;
+        }
+        adjusted.setColor(group, QPalette::HighlightedText, text);
+        changed |= current.color(group, QPalette::HighlightedText) != text;
+    }
+    if (changed)
+        setPalette(adjusted);
+}
+#endif
 
 void MarkdownRenderer::render(const QString &markdown, const QString &path)
 {

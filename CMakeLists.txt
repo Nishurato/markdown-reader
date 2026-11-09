@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
 
-project(MarkdownReader VERSION 0.2.2 LANGUAGES CXX)
+project(MarkdownReader VERSION 0.2.3 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -32,6 +32,13 @@ set_target_properties(MarkdownReader PROPERTIES
     MACOSX_BUNDLE_GUI_IDENTIFIER org.markdownreader.app
     MACOSX_BUNDLE_SHORT_VERSION_STRING ${PROJECT_VERSION}
 )
+
+option(MARKDOWN_READER_BUILD_BENCHMARK "Build the local GUI and memory benchmark" OFF)
+if(MARKDOWN_READER_BUILD_BENCHMARK)
+    qt_add_executable(markdown_reader_benchmark tools/ReaderBenchmark.cpp)
+    set_target_properties(markdown_reader_benchmark PROPERTIES WIN32_EXECUTABLE FALSE)
+    target_link_libraries(markdown_reader_benchmark PRIVATE markdown_reader_core)
+endif()
 
 include(CTest)
 if(BUILD_TESTING)
